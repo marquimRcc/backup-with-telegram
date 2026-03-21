@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=TeleVault
+Comment=Backup pessoal direto no Telegram
+Exec=bash -c "cd $(dirname %k)/.. && bash dev.sh"
+Icon=televault
+Type=Application
+Categories=Utility;Archiving;Network;
+Terminal=false
+StartupNotify=true
+Keywords=backup;telegram;cloud;vault;

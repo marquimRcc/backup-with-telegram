@@ -1,122 +1,86 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────
-#  TeleVault — Instalação rápida para RegataOS / openSUSE
+#  TeleVault — Instalação para RegataOS / openSUSE
 #  Uso: bash scripts/install.sh
 # ─────────────────────────────────────────────────────────────
 set -euo pipefail
 
-TV_DIR="$HOME/.local/share/televault"
-TV_VENV="$TV_DIR/venv"
-TV_REPO="$(cd "$(dirname "$0")/.." && pwd)"
-TV_SERVICE="$HOME/.config/systemd/user/televault.service"
-TV_DESKTOP="$HOME/.local/share/applications/televault.desktop"
+GREEN="\033[32m" BLUE="\033[34m" DIM="\033[2m" NC="\033[0m"
+DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
-GREEN="\033[0;32m" BLUE="\033[0;34m" YELLOW="\033[1;33m" NC="\033[0m"
+echo -e "${GREEN}📦 TeleVault — Instalação${NC}"
+echo -e "${DIM}   Diretório: ${DIR}${NC}\n"
 
-log()  { echo -e "${BLUE}[TeleVault]${NC} $*"; }
-ok()   { echo -e "${GREEN}✅${NC} $*"; }
-warn() { echo -e "${YELLOW}⚠️${NC} $*"; }
+# ── dependências de sistema ──
+echo -e "${BLUE}[1/5] Verificando dependências de sistema...${NC}"
+for cmd in python3.11 node npm; do
+    if ! command -v "$cmd" &>/dev/null; then
+        echo "  ❌ $cmd não encontrado."
+        if [ "$cmd" = "python3.11" ]; then
+            echo "     Instale: sudo zypper install python311 python311-pip"
+        else
+            echo "     Instale: sudo zypper install nodejs20 npm20"
+        fi
+        exit 1
+    fi
+    echo "  ✅ $cmd: $(command -v "$cmd")"
+done
 
-log "Instalando TeleVault em $TV_DIR"
+# ── backend deps ──
+echo -e "\n${BLUE}[2/5] Instalando dependências Python...${NC}"
+cd "$DIR/backend"
+pip3.11 install --break-system-packages -q -r requirements.txt 2>&1 | tail -3
+echo "  ✅ Dependências Python instaladas"
 
-# ── dependências do sistema ───────────────────────────────────
-log "Verificando dependências..."
-if ! command -v python3.11 &>/dev/null; then
-    warn "python3.11 não encontrado. Instalando via zypper..."
-    sudo zypper install -y python311 python311-pip python311-virtualenv
+# ── frontend deps ──
+echo -e "\n${BLUE}[3/5] Instalando dependências Node.js...${NC}"
+cd "$DIR/frontend"
+npm install --silent 2>&1 | tail -3
+echo "  ✅ Dependências Node.js instaladas"
+
+# ── diretórios ──
+echo -e "\n${BLUE}[4/5] Criando diretórios...${NC}"
+mkdir -p ~/.televault/sessions
+echo "  ✅ ~/.televault/sessions"
+
+# ── .env ──
+echo -e "\n${BLUE}[5/5] Configuração...${NC}"
+if [ ! -f "$DIR/.env" ]; then
+    cp "$DIR/.env.example" "$DIR/.env"
+    echo "  ⚠️  .env criado a partir do .env.example"
+    echo "     Edite $DIR/.env com suas credenciais do Telegram:"
+    echo "     - TELEGRAM_API_ID"
+    echo "     - TELEGRAM_API_HASH"
+    echo "     - TELEVAULT_CHANNEL_ID"
+else
+    echo "  ✅ .env já existe"
 fi
 
-if ! command -v node &>/dev/null; then
-    warn "Node.js não encontrado. Instalando..."
-    sudo zypper install -y nodejs20 npm20
+# ── .desktop ──
+DESKTOP_DIR="$HOME/.local/share/applications"
+mkdir -p "$DESKTOP_DIR"
+ICON_SRC="$DIR/frontend/public/logo.svg"
+ICON_DST="$HOME/.local/share/icons/televault.svg"
+mkdir -p "$(dirname "$ICON_DST")"
+if [ -f "$ICON_SRC" ]; then
+    cp "$ICON_SRC" "$ICON_DST"
 fi
 
-# ── diretórios ────────────────────────────────────────────────
-mkdir -p "$TV_DIR" "$HOME/.televault/sessions"
-
-# ── Python venv ───────────────────────────────────────────────
-log "Criando virtualenv Python..."
-python3.11 -m venv "$TV_VENV"
-source "$TV_VENV/bin/activate"
-pip install --upgrade pip -q
-pip install -r "$TV_REPO/backend/requirements.txt" -q
-deactivate
-ok "Backend Python pronto"
-
-# ── Frontend build ────────────────────────────────────────────
-log "Buildando frontend..."
-cd "$TV_REPO/frontend"
-npm install --silent
-npm run build --silent
-ok "Frontend buildado"
-
-# ── .env ─────────────────────────────────────────────────────
-if [ ! -f "$TV_REPO/.env" ]; then
-    log "Criando .env — você precisará preencher API_ID e API_HASH"
-    cat > "$TV_REPO/.env" <<EOF
-# Obtenha em: https://my.telegram.org/apps
-TELEGRAM_API_ID=0
-TELEGRAM_API_HASH=
-
-# Mude em produção!
-SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_hex(32))")
-
-DEBUG=false
-EOF
-    warn "⚡ Preencha TELEGRAM_API_ID e TELEGRAM_API_HASH no arquivo .env antes de usar!"
-fi
-
-# ── systemd user service ──────────────────────────────────────
-mkdir -p "$(dirname "$TV_SERVICE")"
-cat > "$TV_SERVICE" <<EOF
-[Unit]
-Description=TeleVault — Backup para Telegram
-After=network.target
-
-[Service]
-Type=simple
-WorkingDirectory=$TV_REPO/backend
-ExecStart=$TV_VENV/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
-Restart=on-failure
-RestartSec=5
-Environment=PYTHONPATH=$TV_REPO/backend
-EnvironmentFile=$TV_REPO/.env
-
-[Install]
-WantedBy=default.target
-EOF
-
-systemctl --user daemon-reload
-systemctl --user enable televault
-ok "Serviço systemd configurado"
-
-# ── .desktop (lançador KDE) ───────────────────────────────────
-mkdir -p "$(dirname "$TV_DESKTOP")"
-cat > "$TV_DESKTOP" <<EOF
+cat > "$DESKTOP_DIR/televault.desktop" << DESK
 [Desktop Entry]
-Version=1.0
-Type=Application
 Name=TeleVault
-Comment=Backup pessoal no Telegram
-Exec=xdg-open http://localhost:3000
-Icon=$TV_REPO/frontend/public/logo.png
+Comment=Backup pessoal direto no Telegram
+Exec=bash -c "cd '$DIR' && bash dev.sh"
+Icon=$ICON_DST
+Type=Application
+Categories=Utility;Archiving;Network;
 Terminal=false
-Categories=Utility;System;
-Keywords=backup;telegram;cloud;
-EOF
-ok "Lançador KDE criado"
+StartupNotify=true
+DESK
+chmod +x "$DESKTOP_DIR/televault.desktop"
+echo "  ✅ Atalho criado no menu de apps"
 
-echo ""
-echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${GREEN}  TeleVault instalado com sucesso! 🎉${NC}"
-echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo ""
-echo "  1. Preencha .env com TELEGRAM_API_ID e TELEGRAM_API_HASH"
-echo "     → https://my.telegram.org/apps"
-echo ""
-echo "  2. Inicie o servidor:"
-echo "     systemctl --user start televault"
-echo ""
-echo "  3. Abra no navegador:"
-echo "     http://localhost:3000"
-echo ""
+echo -e "\n${GREEN}✅ Instalação concluída!${NC}"
+echo -e "${DIM}   Para iniciar:  cd $DIR && bash dev.sh${NC}"
+echo -e "${DIM}   Acesso:        http://localhost:5173${NC}"
+echo -e "${DIM}   Backend:       http://localhost:8001${NC}"
