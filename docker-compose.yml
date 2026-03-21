@@ -1,0 +1,36 @@
+version: "3.9"
+
+services:
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: televault-api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - televault-data:/root/.televault   # sessão + banco persistentes
+      - /home:/mnt/home:ro                # acesso somente-leitura aos arquivos do usuário
+    env_file:
+      - .env
+    environment:
+      - TELEGRAM_SESSION=televault
+      - DATA_DIR=/root/.televault
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: televault-ui
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    environment:
+      - VITE_API_URL=http://localhost:8000
+
+volumes:
+  televault-data:
