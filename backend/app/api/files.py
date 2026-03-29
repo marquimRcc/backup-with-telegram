@@ -172,7 +172,6 @@ async def upload_file(
     Frontend acompanha via GET /upload-progress/{upload_id}
     """
     # rate limit: 10 uploads por minuto por IP
-    check_rate_limit(request, "files:upload", max_requests=10, window_seconds=60)
     if not telegram_client.is_authorized:
         raise HTTPException(status_code=401, detail="Não autenticado")
 
